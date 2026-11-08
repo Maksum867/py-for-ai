@@ -1,7 +1,7 @@
 """
 filters.py module
 =================
-Filtering logic for the py-ai utility:
+Filtering logic for the Py-For-AI utility:
 
 - Built-in ignore rules (should_ignore): VCS folders, caches, build
   artifacts, binary extensions, hidden files (with an allowlist).
@@ -18,6 +18,7 @@ import fnmatch
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 # Standard lists of exclusions for ignore checks
 IGNORED_NAMES = {
@@ -102,7 +103,7 @@ def _is_outside_root(path: Path, root_dir: Path) -> bool:
         return True
 
 
-def should_ignore(path: Path, root_dir: Path) -> bool:
+def should_ignore(path: Path, root_dir: Path, *, _trusted_parent: bool = False) -> bool:
     """
     Checks if a file or directory should be ignored based on the built-in
     exclusion rules.
@@ -120,13 +121,22 @@ def should_ignore(path: Path, root_dir: Path) -> bool:
     # can be computed directly — this skips two expensive Path.resolve() calls
     # per item (resolve() costs O(depth), which is quadratic on deeply nested
     # projects). Anything unusual falls back to the full resolve-based logic.
-    if path.is_absolute() and not path.is_symlink():
+    if _trusted_parent and path.is_absolute() and not path.is_symlink():
         try:
             rel_parts_path = path.relative_to(root_dir.resolve())
         except (ValueError, OSError):
             rel_parts_path = None  # fall through to the slow path below
         if rel_parts_path is not None:
             return _should_ignore_rel(path, rel_parts_path)
+
+    # Apply built-in rules to the visible path as well as its target: resolving
+    # first would allow a hidden or ignored symlink name to bypass the rules.
+    try:
+        lexical = path.absolute().relative_to(root_dir.absolute())
+    except ValueError:
+        lexical = None
+    if lexical is not None and _should_ignore_rel(path, lexical):
+        return True
 
     try:
         # Resolve to absolute paths to avoid issues with relative path operations
@@ -257,26 +267,29 @@ def _rebase_ignore_line(line: str, rel_dir: str) -> str:
       'sub/<pattern>'.
     The '!' negation prefix is preserved. Comments/blank lines pass through.
     """
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
+    # Git preserves leading spaces and escaped trailing spaces. Do not strip
+    # the pattern: pathspec handles unescaped trailing whitespace itself.
+    if not line.strip() or line.startswith("#"):
         return line
     if not rel_dir:
-        return stripped
+        return line
 
     negate = ""
-    pattern = stripped
+    pattern = line
     if pattern.startswith("!"):
         negate = "!"
-        pattern = pattern[1:].lstrip()
+        pattern = pattern[1:]
     # An inner slash (ignoring an optional trailing one) anchors the pattern
     # to the ignore file's own directory; without it git matches any depth.
     anchored = "/" in pattern[:-1]
     pattern = pattern.lstrip("/")
     if not pattern:
         return line
+    # Directory names are literal paths, not glob patterns.
+    literal_dir = "".join("\\" + c if c in "\\*?[]" else c for c in rel_dir)
     if anchored:
-        return f"{negate}{rel_dir}/{pattern}"
-    return f"{negate}{rel_dir}/**/{pattern}"
+        return f"{negate}{literal_dir}/{pattern}"
+    return f"{negate}{literal_dir}/**/{pattern}"
 
 
 def load_ignore_matcher(root_dir: Path):
@@ -316,6 +329,9 @@ def load_ignore_matcher(root_dir: Path):
     all_lines: list[str] = []
     for base_dir, name in found_files:
         ignore_file = base_dir / name
+        if ignore_file.is_symlink():
+            print(f"Warning: ignoring symlinked ignore file '{ignore_file}'.", file=sys.stderr)
+            continue
         try:
             lines = ignore_file.read_text(encoding="utf-8-sig", errors="replace").splitlines()
         except OSError as e:
@@ -330,6 +346,7 @@ def load_ignore_matcher(root_dir: Path):
 
     # pathspec >= 0.12 renamed the 'gitwildmatch' factory to 'gitignore';
     # fall back to the legacy name for older versions.
+    spec: Any
     try:
         spec = pathspec.PathSpec.from_lines("gitignore", all_lines)
     except Exception:
@@ -451,10 +468,18 @@ def matches_include_patterns(path: Path, root_dir: Path, patterns) -> bool:
     for pattern in patterns:
         base, glob_ = _include_pattern_parts(pattern)
         if base == "**":
+            # A bare literal can name a root directory as well as a file.
+            if (glob_ and not any(c in glob_ for c in "*?[")
+                    and rel.startswith(glob_ + "/")):
+                return True
             if glob_ is None or fnmatch.fnmatch(name, glob_) or fnmatch.fnmatch(rel, glob_):
                 return True
         elif glob_ is None:
-            if rel == base or rel.startswith(base + "/"):
+            # The pattern names a directory (possibly with glob characters);
+            # compare each ancestor rather than the full file path.
+            parents = rel.split("/")[:-1]
+            if any(fnmatch.fnmatch("/".join(parents[:i]), base)
+                   for i in range(1, len(parents) + 1)):
                 return True
         else:
             if fnmatch.fnmatch(rel, base + "/" + glob_):
@@ -481,6 +506,8 @@ def dir_kept_for_include(path: Path, root_dir: Path, patterns) -> bool:
         base, _ = _include_pattern_parts(pattern)
         if base == "**":
             return True
+        if any(c in base for c in "*?["):
+            return True  # wildcard directory components: do not prune potentially matching paths
         if rel == base or rel.startswith(base + "/") or base.startswith(rel + "/"):
             return True
     return False
@@ -502,14 +529,30 @@ def make_filter(root_dir: Path, patterns=(), matcher=None, include_patterns=()):
     """
     root_dir = Path(root_dir)
     inc = tuple(include_patterns or ())
+    patterns = tuple(patterns or ())  # generators must work for every entry
 
     def _ignore(path: Path) -> bool:
         if (
-            should_ignore(path, root_dir)
+            should_ignore(path, root_dir, _trusted_parent=True)
             or matches_user_patterns(path, root_dir, patterns)
             or matches_ignore_files(path, root_dir, matcher)
         ):
             return True
+        if path.is_symlink() and path.is_file():
+            # A link must not bypass exclusions applied to its target or any
+            # of the target's parent directories. Includes still match the alias.
+            try:
+                target = path.resolve()
+                target.relative_to(root_dir.resolve())
+            except (OSError, ValueError, RuntimeError):
+                return True
+            for candidate in (target, *target.parents):
+                if candidate == root_dir:
+                    break
+                if (should_ignore(candidate, root_dir, _trusted_parent=True)
+                        or matches_user_patterns(candidate, root_dir, patterns)
+                        or matches_ignore_files(candidate, root_dir, matcher)):
+                    return True
         if inc:
             if path.is_dir():
                 return not dir_kept_for_include(path, root_dir, inc)

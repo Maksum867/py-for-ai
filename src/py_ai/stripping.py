@@ -1,7 +1,7 @@
 """
 stripping.py module
 ===================
-Optional source slimming for the py-ai utility (--strip-docs).
+Optional source slimming for the Py-For-AI utility (--strip-docs).
 
 Removes comments and docstrings from Python source so the packed context
 becomes smaller. The transformation is AST-based and fails safe: any file
@@ -42,63 +42,61 @@ def _collect_and_remove_docstrings(tree) -> list:
 
 
 def _fallback_strip(source: str, docstring_spans) -> str:
-    """Python 3.8 path (no ast.unparse): blank out docstring lines and
-    comments via tokenize, then collapse runs of blank lines.
+    """Remove docstrings and comments by position without changing literals.
 
-    A def/class whose body consisted only of the docstring would become an
-    empty (invalid) block, so a ``pass`` statement is inserted under such
-    headers — mirroring what the AST path does on Python >= 3.9.
+    If a transformation cannot be proved safe, return the original source.
+    The unused spans argument is retained for compatibility with callers.
     """
-    out_lines = source.splitlines()
+    del docstring_spans
     try:
-        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
-        for tok_ in tokens:
-            if tok_.type == tokenize.COMMENT:
-                line_no = tok_.start[0]
-                line = out_lines[line_no - 1]
-                out_lines[line_no - 1] = line[:tok_.start[1]].rstrip()
-    except (tokenize.TokenError, IndentationError, SyntaxError):
-        return source
+        tree = ast.parse(source)
+        lines = source.splitlines(keepends=True)
+        offsets = [0]
+        for line in lines:
+            offsets.append(offsets[-1] + len(line))
 
-    # Bottom-up so inserted lines never shift the pending spans.
-    for start, end in sorted(docstring_spans, reverse=True):
-        for line_no in range(start, min(end, len(out_lines)) + 1):
-            out_lines[line_no - 1] = ""
-        # Locate the header line above the docstring (nearest non-blank).
-        header_idx = start - 2
-        while header_idx >= 0 and not out_lines[header_idx].strip():
-            header_idx -= 1
-        if header_idx < 0:
-            continue  # module docstring: an empty module is still valid
-        header = out_lines[header_idx]
-        if not header.rstrip().endswith(":"):
-            continue  # not a def/class one-liner header
-        header_indent = header[:len(header) - len(header.lstrip())]
-        # Skip the blanked block; if the next non-blank line is not deeper
-        # than the header, the block is empty and needs a `pass`.
-        after = end  # 1-based index of the first line after the docstring
-        while after <= len(out_lines) and not out_lines[after - 1].strip():
-            after += 1
-        if after > len(out_lines):
-            out_lines.insert(after - 1, header_indent + "    pass")
-            continue
-        following = out_lines[after - 1]
-        following_indent = following[:len(following) - len(following.lstrip())]
-        if len(following_indent) <= len(header_indent):
-            out_lines.insert(after - 1, header_indent + "    pass")
+        def position(line, column, byte_column=False):
+            text = lines[line - 1]
+            if byte_column:
+                column = len(text.encode("utf-8")[:column].decode("utf-8"))
+            return offsets[line - 1] + column
 
-    cleaned = []
-    blank = False
-    for line in out_lines:
-        if not line.strip():
-            if blank:
+        edits = []
+        for node in ast.walk(tree):
+            if not isinstance(node, _DOCSTRING_NODES) or not node.body:
                 continue
-            blank = True
-            cleaned.append("")
-        else:
-            blank = False
-            cleaned.append(line)
-    return "\n".join(cleaned).rstrip("\n") + "\n"
+            expr = node.body[0]
+            if not (isinstance(expr, ast.Expr) and isinstance(expr.value, ast.Constant)
+                    and isinstance(expr.value.value, str)):
+                continue
+            if getattr(expr, "end_lineno", None) is None:
+                return source
+            start = position(expr.lineno, expr.col_offset, True)
+            end = position(expr.end_lineno, expr.end_col_offset, True)
+            if isinstance(node, ast.Module):
+                # Do not insert a statement before a future import. If a
+                # semicolon shares the line, retain the source rather than
+                # manufacture invalid syntax or delete unrelated statements.
+                if source[end:].lstrip(" \t").startswith(";"):
+                    return source
+                replacement = ""
+            else:
+                replacement = "pass"
+            edits.append((start, end, replacement))
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT:
+                edits.append((position(*token.start), position(*token.end), ""))
+        result = source
+        for start, end, replacement in sorted(edits, reverse=True):
+            result = result[:start] + replacement + result[end:]
+        ast.parse(result)
+        # Preserve future-import placement and other compile-time constraints.
+        compile(source, "<source>", "exec")
+        compile(result, "<stripped>", "exec")
+        return result
+    except (SyntaxError, ValueError, UnicodeError, IndexError, tokenize.TokenError,
+            IndentationError, RecursionError):
+        return source
 
 
 def strip_python_docs(source: str) -> str:

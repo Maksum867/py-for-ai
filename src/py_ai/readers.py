@@ -1,7 +1,7 @@
 """
 readers.py module
 =================
-Robust reading of project files for the py-ai utility:
+Robust reading of project files for the Py-For-AI utility:
 
 - BOM-aware decoding (UTF-32 / UTF-16 / UTF-8-SIG).
 - Binary detection via NUL-byte heuristics.
@@ -70,7 +70,8 @@ def read_text_content(file_path: Path) -> tuple[str | None, str | None, str | No
 
     Detection strategy:
     1. BOM-aware decoding for UTF-32 / UTF-16 / UTF-8-SIG files.
-    2. Files containing NUL bytes (in the first chunk) are treated as binary.
+    2. Files containing NUL bytes (after BOM decoding, or anywhere in raw bytes)
+       are treated as binary.
     3. Otherwise the encoding fallback chain is tried:
        UTF-8 -> UTF-8-SIG -> cp1251 -> latin-1 (the latter never fails).
     4. Line endings are normalized to LF (CRLF/CR -> LF), so the pack is
@@ -91,7 +92,10 @@ def read_text_content(file_path: Path) -> tuple[str | None, str | None, str | No
     for bom, encoding in _BOM_ENCODINGS:
         if raw.startswith(bom):
             try:
-                return _normalize_newlines(raw.decode(encoding)), None, encoding
+                text = raw.decode(encoding)
+                if "\x00" in text:
+                    return None, "binary file", None
+                return _normalize_newlines(text), None, encoding
             except UnicodeDecodeError:
                 return None, "encoding error (invalid BOM-marked content)", None
 

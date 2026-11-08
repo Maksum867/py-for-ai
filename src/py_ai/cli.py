@@ -1,7 +1,7 @@
 """
 cli.py module
 =============
-Command-line interface (CLI) for the py-ai utility using the built-in argparse.
+Command-line interface (CLI) for the Py-For-AI utility using the built-in argparse.
 Provides user interaction, argument parsing, and triggers the packing logic.
 """
 
@@ -23,6 +23,14 @@ _SIZE_SUFFIXES = {
 }
 
 
+def _scaled_number(value: str, multiplier: int) -> int:
+    """Scale a decimal string exactly, rounding toward zero."""
+    if len(value) > 100:
+        raise ValueError("numeric value is too large")
+    whole, _, fraction = value.partition(".")
+    return int(whole) * multiplier + (int(fraction or "0") * multiplier // 10 ** len(fraction))
+
+
 def parse_size(value: str) -> int:
     """
     Parses a human-friendly size like '512KB', '10MB' or '1048576'
@@ -31,9 +39,8 @@ def parse_size(value: str) -> int:
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?\s*", value.strip(), re.IGNORECASE)
     if not match:
         raise ValueError(f"invalid size value: '{value}' (examples: 512KB, 10MB, 1048576)")
-    number = float(match.group(1))
     suffix = (match.group(2) or "B").upper()
-    result = int(number * _SIZE_SUFFIXES[suffix])
+    result = _scaled_number(match.group(1), _SIZE_SUFFIXES[suffix])
     if result <= 0:
         raise ValueError(f"size must be greater than zero: '{value}'")
     return result
@@ -48,10 +55,9 @@ def parse_token_budget(value: str) -> int:
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kKmM])?\s*", value.strip())
     if not match:
         raise ValueError(f"invalid token budget: '{value}' (examples: 128k, 1m, 200000)")
-    number = float(match.group(1))
     suffix = (match.group(2) or "").lower()
     multiplier = {"": 1, "k": 1_000, "m": 1_000_000}[suffix]
-    result = int(number * multiplier)
+    result = _scaled_number(match.group(1), multiplier)
     if result <= 0:
         raise ValueError(f"token budget must be greater than zero: '{value}'")
     return result
@@ -60,13 +66,15 @@ def parse_token_budget(value: str) -> int:
 def _program_name() -> str:
     """Returns the program name to display, based on how the tool was invoked.
 
-    Both console scripts ('pyai' and 'py-ai') point to the same entry point,
+    The console scripts 'py-for-ai', 'pyai' and 'py-ai' share an entry point,
     and `python -m py_ai` goes through __main__.py, so the name must be
     derived from argv[0] instead of being hardcoded.
     """
     argv0 = os.path.basename(sys.argv[0]) if sys.argv and sys.argv[0] else ""
     if argv0.endswith("__main__.py"):
         return "python -m py_ai"
+    if argv0.startswith("py-for-ai"):
+        return "py-for-ai"
     if argv0.startswith("py-ai"):
         return "py-ai"
     if argv0.startswith("pyai"):
@@ -80,14 +88,14 @@ def _enable_unicode_output() -> None:
     UnicodeEncodeError."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(errors="replace")  # Python >= 3.7
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
         except (AttributeError, ValueError, OSError):
             pass  # non-standard streams (e.g. test capture, odd embedders)
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=_program_name(),
-        description="py-ai: pack your project's codebase into a single text (or Markdown) file "
+        description="Py-For-AI: pack your project's codebase into a single text (or Markdown) file "
                     "and copy it to the clipboard for LLM context."
     )
 
@@ -273,6 +281,14 @@ def main():
             budget=budget,
         )
 
+        if not args.dry_run and not args.no_clipboard and not stats["clipboard_copied"]:
+            print(
+                f"Warning: Could not copy to clipboard. "
+                f"Details: {stats['clipboard_error'] or 'Unknown error'}. "
+                "The output was still saved successfully to the output file.",
+                file=sys.stderr,
+            )
+
         if not args.quiet and args.dry_run:
             files = stats.get("files", [])
             ordered = sorted(files, key=lambda r: -(r["tokens"] or 0))
@@ -325,12 +341,6 @@ def main():
             else:
                 if args.no_clipboard:
                     print("ℹ️  Clipboard copying was disabled by the --no-clipboard flag.")
-                else:
-                    print(
-                        f"⚠️  Could not copy to clipboard.\n"
-                        f"   Details: {stats['clipboard_error'] or 'Unknown error'}.\n"
-                        f"   The output was still saved successfully to the output file."
-                    )
 
     except FileNotFoundError as e:
         print(f"❌ Error: {e}", file=sys.stderr)

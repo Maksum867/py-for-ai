@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.0] - 2026-11-08
+
+### Added
+- `py-for-ai` console command; `pyai` and `py-ai` remain compatible aliases.
+- PyPI Trusted Publishing workflow triggered by published GitHub releases, with description, version, verification and build checks.
+- Static type checking in CI and development dependencies.
+
+### Changed
+- Integrated audit regression tests into the repository's test suite.
+- Removed the accidentally committed verification script.
+
+### Fixed
+- Show clipboard failures on stderr even in quiet mode; include bare root directory names.
+- Preserve generator-based exclude patterns across all scanned entries.
+- Match wildcard directory patterns ending in `/` or `/**` in `--include`.
+- Apply built-in filtering to symlink names as well as targets; do not follow
+  symlinked ignore files.
+- Preserve escaped whitespace and literal directory names in nested ignore rules.
+- Write output atomically, avoiding truncation on failure and mutation of hardlinks.
+- Reject NUL-containing BOM-decoded files; use stable case-sensitive tie-breaking.
+- Parse large decimal sizes and budgets exactly and validate API size limits.
+- Keep Python 3.8 development installation compatible with available type stubs.
+- Update repository links and publishing instructions after the GitHub rename.
+- Prevent file symlinks from bypassing exclusions on their targets.
+- Deduplicate multiple symlinks to the same file when the real file is not selected.
+- Support include patterns with wildcards in directory components.
+- Preserve code and string literals in the Python 3.8 docstring-stripping fallback.
+- Reject unreasonably large numeric CLI arguments with a clean error.
+- Correct public outside-root filtering for paths with symlinked parents and internal type annotations.
+
 ## [0.4.0] - 2026-09-13
 
 ### Added
@@ -27,11 +57,6 @@
   (AST-based, syntax-error files pass through untouched) to shrink the pack —
   at the cost of losing the explanations an LLM could lean on, so it is
   opt-in.
-- **Cross-platform verification script `verify_all.py`**: one script with
-  identical checks (environment, editable install, compileall, ruff, pytest,
-  CLI smoke tests, git hygiene, build + twine check, wheel smoke test in a
-  clean temporary venv) that runs anywhere Python runs. Flags:
-  `--skip-build`, `--skip-install`.
 
 ## [0.3.1] - 2026-09-13
 

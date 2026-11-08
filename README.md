@@ -1,12 +1,12 @@
 <div align="center">
 
-# py-ai 🚀
+# Py-For-AI 🚀
 
-[![PyPI version](https://img.shields.io/pypi/v/py-for-ai.svg)](https://pypi.org/project/py-for-ai/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Maksum867/py-ai/blob/main/LICENSE)
-[![Python Support](https://img.shields.io/pypi/pyversions/py-for-ai.svg)](https://pypi.org/project/py-for-ai/)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![License MIT](https://img.shields.io/badge/License-MIT-E6C200?style=for-the-badge)](https://github.com/Maksum867/py-for-ai/blob/main/LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/py-for-ai?style=for-the-badge&label=PyPI&color=FF6666)](https://pypi.org/project/py-for-ai/)
 
-`py-ai` is a lightweight, zero-configuration command-line interface (CLI) tool designed for developers. It recursively scans your local Python codebase, filters out unnecessary files, and compiles your entire project—complete with a beautiful ASCII directory tree and LLM-ready statistics (lines & estimated tokens)—into a single text or Markdown file while automatically copying it to your clipboard.
+**Py-For-AI** is a lightweight, zero-configuration command-line interface (CLI) tool designed for developers. It recursively scans your local Python codebase, filters out unnecessary files, and compiles your entire project—complete with a beautiful ASCII directory tree and LLM-ready statistics (lines & estimated tokens)—into a single text or Markdown file while automatically copying it to your clipboard.
 
 Perfect for instantly feeding your codebase context into Large Language Models (LLMs) like ChatGPT, Claude, and Gemini.
 
@@ -18,7 +18,7 @@ Perfect for instantly feeding your codebase context into Large Language Models (
 
 - **LLM-ready statistics**: every pack ends with the total line count and an **estimated token count** (accurate `cl100k_base` counting when `tiktoken` is installed, ~4 chars/token heuristic otherwise), printed in the output header and in the CLI summary.
 - **Three output formats**: classic plain text (`--- START OF FILE: ... ---`), **Markdown** (`--format markdown`) with language-aware fenced code blocks, and **JSON** (`--format json`) with per-file metadata (`path`, `lines`, `tokens`, `content`) for scripts and API processing.
-- **`--include` filter**: pack ONLY files matching a pattern (`pyai --include 'src/**'`, `--include '*.py'`); directories that cannot contain matching files are pruned from the tree, and it composes with `--exclude`.
+- **`--include` filter**: pack ONLY files matching a pattern (`pyai --include 'src/**'`, `--include 'src'`, `--include '*.py'`); directories that cannot contain matching files are pruned from the tree, and it composes with `--exclude`.
 - **LLM budget control (`--budget`)**: warn when the pack exceeds an LLM context limit (e.g. `--budget 128k`) and name the heaviest files to drop first; per-file line/token statistics are always available.
 - **`--dry-run` preview**: see exactly what would be packed (files sorted by token weight, totals, budget verdict) without writing anything.
 - **`--strip-docs`**: optionally strip comments and docstrings from Python files (AST-based, syntax-error files pass through untouched) to shrink the pack.
@@ -50,8 +50,7 @@ py_ai_project/
 ├── pyproject.toml
 ├── README.md
 ├── CHANGELOG.md
-├── .github/workflows/tests.yml   # CI: pytest + ruff on 3 OS × 6 Python versions
-├── verify_all.py                 # cross-platform pre-release verification
+├── .github/workflows/            # CI checks and PyPI publishing
 ├── tests/                        # pytest suite
 └── src/py_ai/
     ├── __init__.py               # version (read from installed metadata)
@@ -89,26 +88,15 @@ pip install "py-for-ai[all]"          # everything above
 *(Or install it locally for development)*:
 
 ```bash
-git clone https://github.com/Maksum867/py-ai.git
-cd py-ai
+git clone https://github.com/Maksum867/py-for-ai.git
+cd py-for-ai
 pip install -e ".[dev]"
 pytest
 ```
 
-### Full pre-release verification (one command)
-
-Run everything — tests, lint, CLI smoke checks, git hygiene, build, wheel smoke — from the repo root:
-
-```powershell
-python verify_all.py                 # full check (tests, lint, CLI smoke, build, wheel smoke)
-python verify_all.py --skip-build    # quick check (no build)
-```
-
-The script exits `0` when every check passes and `1` when anything fails.
-
 ### Usage
 
-Run the utility from any terminal session — both `pyai` and the `py-ai` alias are available:
+Run the utility with `py-for-ai`, `pyai`, or the backwards-compatible `py-ai` alias. The Python module remains `py_ai`:
 
 ```bash
 # 1. Pack current directory and copy to clipboard:
@@ -129,8 +117,8 @@ pyai --format markdown -o context.md
 # 6. Skip large files and extra paths:
 pyai --max-file-size 200KB --exclude '*.log' --exclude 'docs/*'
 
-# 7. Same via the alias or as a module; show the installed version:
-py-ai --no-clipboard
+# 7. Same via the project-name command or as a module; show the installed version:
+py-for-ai --no-clipboard
 python -m py_ai --version
 
 # 8. CI-friendly: no informational output, no clipboard, no tree:
@@ -221,11 +209,11 @@ def main():
 ```
 ````
 
-Files that exist in the project but were not packed (binaries, oversized files, unsafe symlinks) remain visible in the tree with an explanatory note, e.g.:
+Files skipped during reading (for example NUL-containing or oversized files) and unsafe symlinks are shown in the tree with an explanatory note. Files filtered out by name or extension are omitted from the tree. For example:
 
 ```text
 ├── data/
-│   ├── dump.bin  [skipped: binary file]
+│   ├── dump.txt  [skipped: binary file]
 │   ├── huge.log  [skipped: exceeds size limit (200.0 KB)]
 │   └── notes.txt -> /etc/hostname  [symlink outside project root — not followed, not packed]
 ```
@@ -237,7 +225,7 @@ Files that exist in the project but were not packed (binaries, oversized files, 
 - **Directories/files by name**: `.git`, `.github`, `.gitlab`, `.svn`, `.hg`, `node_modules`, `__pycache__`, `.venv`, `venv`, `env`, `.env`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `build`, `dist`, `.idea`, `.vscode`, `.settings`, `.DS_Store`, `Thumbs.db`, `desktop.ini` (matched case-insensitively), any path component ending in `.egg-info`.
 - **Binary extensions**: compiled artifacts, archives, images, audio/video, fonts, databases, office documents, ML artifacts (`.pkl`, `.npy`, `.onnx`, …) and executables (`.exe`, `.msi`, `.bin`, `.dll`, `.so`, …). Files of any other type that contain NUL bytes are treated as binary too and skipped with a warning.
 - **Hidden files** (starting with `.`) are ignored, **except**: `.gitignore`, `.gitattributes`, `.gitmodules`, `.env.example`, `.env.template`, `.pylintrc`, `.flake8`, `.coveragerc`, `.dockerignore`, `.editorconfig`, `.pre-commit-config.yaml`, `.python-version`, `.readthedocs.yaml`, `.readthedocs.yml`, `.codecov.yml`.
-- **`.gitignore` / `.pyaiignore` rules** (when `py-for-ai[gitignore]` is installed; disable with `--no-gitignore`).
+- **`.gitignore` / `.pyaiignore` rules** (when `py-for-ai[gitignore]` is installed; disable with `--no-gitignore`). Symlinked ignore files are not followed.
 - **User patterns** from `--exclude` (matched against the relative POSIX path and the file name). Git-style directory patterns work too: `--exclude 'build/'` excludes the `build/` directory and everything under it. Note: patterns use Python's `fnmatch`, where `*` also matches across `/` (so `docs/*` excludes `docs/deep/file.py` as well).
 - **Oversized files** when `--max-file-size` is given.
 - **Symlinks resolving outside the project root** and **directory symlinks** are never followed or packed (shown in the tree with a note).
@@ -262,10 +250,70 @@ Files that exist in the project but were not packed (binaries, oversized files, 
 ## 🤝 Contributing
 
 ```bash
-git clone https://github.com/Maksum867/py-ai.git
-cd py-ai
+git clone https://github.com/Maksum867/py-for-ai.git
+cd py-for-ai
 pip install -e ".[dev]"
 pytest
 ```
 
 Please make sure the whole `pytest` suite passes and add tests for new features.
+
+
+## Development checks
+
+Install the development tools with `python -m pip install -e ".[dev]"`, then run:
+
+```bash
+python -m pytest                 # run behavioural tests
+ruff check src tests             # detect lint issues
+mypy src/py_ai                   # check annotated types
+```
+
+These tools complement one another: tests exercise behaviour, Ruff detects
+common code issues, and mypy checks types without executing the program.
+Passing all checks does not guarantee correctness.
+
+## PyPI publishing (maintainers)
+
+`.github/workflows/publish.yml` publishes **py-for-ai** when a GitHub release
+is published, including a prerelease. A tag push alone does not trigger it.
+The release must have a non-empty description and a tag matching the package
+version (for example, `v0.5.0`). No long-lived PyPI API token is needed: PyPI Trusted Publishing uses
+GitHub's short-lived OIDC identity. Publication is a real external release.
+
+1. For an existing PyPI project, open **Your projects → py-for-ai → Manage →
+   Publishing** and add a GitHub trusted publisher. For a new project, use
+   **Account settings → Publishing → Add a pending publisher** and enter the
+   exact project name `py-for-ai`. You must own the existing project or have
+   access to publish it; an already-claimed name cannot be reserved by others.
+2. Set **Owner** to `Maksum867`, **Repository name** to `py-for-ai`, **Workflow
+   name** to `publish.yml` (filename only), and **Environment name** to `pypi`.
+3. In GitHub repository **Settings → Environments**, configure `pypi`. Where
+   supported by the repository plan, add required reviewers and restrict the
+   allowed deployment tags; protect release tags against unauthorized pushes.
+   GitHub environment protection availability depends on plan/visibility.
+4. Prepare a new version in `pyproject.toml` and the fallback in
+   `src/py_ai/__init__.py`, update the changelog, merge reviewed changes, and
+   wait for the regular CI checks to succeed. PyPI does not allow overwriting
+   an existing distribution/version.
+5. Only when ready to release, publish a GitHub release with a non-empty
+   description and a matching tag (for example, `v0.5.0` for version `0.5.0`).
+   A release for an existing tag also triggers the workflow; a draft does not
+   until it is published. The workflow validates the description and tag, tests
+   on Linux with Python 3.8 and 3.13, builds wheel and sdist, runs `twine check`,
+   and publishes the built artifacts after any environment approval. The release
+   workflow does not wait for the separate full OS/Python CI matrix; review
+   that matrix before publishing the release. Check Actions and the PyPI page.
+
+References: https://docs.pypi.org/trusted-publishers/ and
+https://github.com/pypa/gh-action-pypi-publish. No workflow can be fully
+verified until the GitHub environment and PyPI publisher are configured.
+
+**Security:** ignore files are only honored when `pathspec` is installed.
+Exclusions are not a substitute for reviewing output for secrets. Writing an
+output path overwrites an existing file; choose it carefully. Output is written
+to a temporary file in the same directory and atomically replaced on success,
+so interrupted writes do not normally truncate an existing output. Existing
+file permissions are retained; a new output is created with restrictive
+permissions where supported. Atomic replacement breaks existing hardlinks to
+the old output file.

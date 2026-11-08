@@ -1,7 +1,7 @@
 """
 core.py module
 ==============
-Core orchestration logic for the py-ai utility:
+Core orchestration logic for the Py-For-AI utility:
 - Project directory tree generation in ASCII format (build_tree_lines).
 - Gathering allowed file contents and writing them to the final context file.
 - Copying the generated output to the system clipboard.
@@ -26,9 +26,12 @@ Design notes
 from __future__ import annotations
 
 import os
+import stat
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pyperclip
 
@@ -370,7 +373,7 @@ def build_tree_lines(path: Path, root_dir: Path, prefix: str = "", is_last: bool
                         continue
                     entries.append((item, None))
                 entries.sort(key=lambda entry: (not entry[0].is_dir() if entry[1] is None else True,
-                                                entry[0].name.lower()))
+                                                entry[0].name.lower(), entry[0].name))
             except OSError as e:
                 # Report permission errors or system issues as a child note of
                 # the directory instead of duplicating the directory entry.
@@ -388,7 +391,7 @@ def build_tree_lines(path: Path, root_dir: Path, prefix: str = "", is_last: bool
     return lines
 
 
-def _collect_files(root_path: Path, output_path: Path, ignore_predicate) -> list[Path]:
+def _collect_files(root_path: Path, output_path: Path, ignore_predicate) -> tuple[list[Path], dict[Path, str]]:
     """
     Collects all files to pack using an ITERATIVE depth-first traversal.
 
@@ -424,7 +427,7 @@ def _collect_files(root_path: Path, output_path: Path, ignore_predicate) -> list
             try:
                 # Sort items for a deterministic walking order:
                 # directories first, then files, both case-insensitive.
-                items = sorted(node.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+                items = sorted(node.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower(), x.name))
             except PermissionError as e:
                 print(f"Warning: Permission denied reading directory {node}: {e}", file=sys.stderr)
                 continue
@@ -469,13 +472,18 @@ def _collect_files(root_path: Path, output_path: Path, ignore_predicate) -> list
                 real_identities.add(key)
 
     unique_files: list[Path] = []
+    seen_aliases: set = set()
     skipped_links: dict[Path, str] = {}
     for f in files_to_pack:
         if f.is_symlink():
             key = _file_identity(f)
-            if key is not None and key in real_identities:
-                skipped_links[f] = "symlink alias — content already packed from the real file"
+            if key is not None and (key in real_identities or key in seen_aliases):
+                skipped_links[f] = ("symlink alias — content already packed from the real file"
+                                    if key in real_identities else
+                                    "symlink alias — content already packed from another file")
                 continue
+            if key is not None:
+                seen_aliases.add(key)
         unique_files.append(f)
 
     return unique_files, skipped_links
@@ -527,6 +535,8 @@ def pack_project(root_dir: str | Path, output_file: str | Path, copy_to_clipboar
             f"Unsupported output format '{output_format}'. "
             f"Available formats: {', '.join(available_formats())}."
         )
+    if max_file_size is not None and max_file_size <= 0:
+        raise ValueError(f"max_file_size must be positive, got {max_file_size!r}")
     if budget is not None and budget <= 0:
         raise ValueError(f"budget must be a positive number of tokens, got {budget!r}")
     if budget is not None and not enable_token_count:
@@ -577,7 +587,7 @@ def pack_project(root_dir: str | Path, output_file: str | Path, copy_to_clipboar
         if content is None:
             # Unreadable/undecodable/binary files are skipped gracefully.
             print(f"Warning: Skipped '{rel_path}' ({error_reason}).", file=sys.stderr)
-            skipped_files[file_path] = error_reason
+            skipped_files[file_path] = error_reason or "unknown read error"
             continue
 
         # Be transparent about transcoding: a non-UTF-8 source file is
@@ -632,7 +642,7 @@ def pack_project(root_dir: str | Path, output_file: str | Path, copy_to_clipboar
     #    describe exactly what would be pasted into the LLM. Embedding the
     #    statistics changes the header, which changes the statistics, so the
     #    assembly is repeated until a fixed point is reached.
-    stats = {
+    stats: dict[str, Any] = {
         "project_name": root_path.name,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "packed_count": packed_count,
@@ -707,8 +717,22 @@ def pack_project(root_dir: str | Path, output_file: str | Path, copy_to_clipboar
     else:
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8", newline="") as f:
-                f.write(full_output)
+            # Write beside the destination, then replace it atomically. A failed
+            # write must not truncate an existing file, or mutate its hardlinks.
+            temporary_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="", dir=output_path.parent,
+                    prefix=".pyai-", suffix=".tmp", delete=False,
+                ) as f:
+                    temporary_path = Path(f.name)
+                    f.write(full_output)
+                if output_path.is_file():
+                    os.chmod(temporary_path, stat.S_IMODE(output_path.stat().st_mode))
+                os.replace(temporary_path, output_path)
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
         except Exception as e:
             raise OSError(f"Failed to write results to '{output_path}': {e}")
 

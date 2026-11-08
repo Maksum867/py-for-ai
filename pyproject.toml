@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "py-for-ai"
-version = "0.4.0"
+version = "0.5.0"
 description = "A command-line utility to pack Python codebases into a single text file for AI context, with clipboard support."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -42,14 +42,15 @@ gitignore = ["pathspec>=0.12"]
 # Everything above.
 all = ["tiktoken>=0.5", "pathspec>=0.12"]
 # Development & testing.
-dev = ["pytest>=7.0", "tiktoken>=0.5", "pathspec>=0.12", "ruff"]
+dev = ["pytest>=7.0", "tiktoken>=0.5", "pathspec>=0.12", "ruff", "mypy", "PyYAML>=6", "types-pyperclip; python_version >= '3.9'"]
 
 [project.urls]
-Homepage = "https://github.com/Maksum867/py-ai"
-Repository = "https://github.com/Maksum867/py-ai"
-Changelog = "https://github.com/Maksum867/py-ai/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Maksum867/py-for-ai"
+Repository = "https://github.com/Maksum867/py-for-ai"
+Changelog = "https://github.com/Maksum867/py-for-ai/blob/main/CHANGELOG.md"
 
 [project.scripts]
+py-for-ai = "py_ai.cli:main"
 pyai = "py_ai.cli:main"
 py-ai = "py_ai.cli:main"
 

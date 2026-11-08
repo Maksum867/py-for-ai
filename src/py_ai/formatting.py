@@ -1,7 +1,7 @@
 """
 formatting.py module
 ====================
-Assembly of the final context output for the py-ai utility.
+Assembly of the final context output for the Py-For-AI utility.
 Two output formats are supported:
 
 - 'text'     : classic plain-text format with START/END OF FILE markers
