@@ -12,6 +12,7 @@
 - Removed the accidentally committed verification script.
 
 ### Fixed
+- Pin Linux CI and release verification to Ubuntu 24.04 for Python 3.8/3.9 support.
 - Show clipboard failures on stderr even in quiet mode; include bare root directory names.
 - Preserve generator-based exclude patterns across all scanned entries.
 - Match wildcard directory patterns ending in `/` or `/**` in `--include`.

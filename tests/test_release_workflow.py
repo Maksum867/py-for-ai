@@ -53,3 +53,17 @@ def test_release_validation_script(workflow, tmp_path, tag, body, success):
     )
     assert (result.returncode == 0) == success, result.stderr
     assert not (tmp_path / "exploit").exists()
+
+
+def test_release_verification_uses_ubuntu_with_python38_support(workflow):
+    assert workflow["jobs"]["verify"]["runs-on"] == "ubuntu-24.04"
+    assert "3.8" in workflow["jobs"]["verify"]["strategy"]["matrix"]["python-version"]
+
+
+def test_main_ci_python_matrix_uses_supported_ubuntu_runner():
+    path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "tests.yml"
+    ci = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    matrix = ci["jobs"]["test"]["strategy"]["matrix"]
+    assert "ubuntu-24.04" in matrix["os"]
+    assert "ubuntu-latest" not in matrix["os"]
+    assert {"3.8", "3.9"}.issubset(matrix["python-version"])

@@ -300,7 +300,7 @@ GitHub's short-lived OIDC identity. Publication is a real external release.
    description and a matching tag (for example, `v0.5.0` for version `0.5.0`).
    A release for an existing tag also triggers the workflow; a draft does not
    until it is published. The workflow validates the description and tag, tests
-   on Linux with Python 3.8 and 3.13, builds wheel and sdist, runs `twine check`,
+   on Ubuntu 24.04 with Python 3.8 and 3.13, builds wheel and sdist, runs `twine check`,
    and publishes the built artifacts after any environment approval. The release
    workflow does not wait for the separate full OS/Python CI matrix; review
    that matrix before publishing the release. Check Actions and the PyPI page.
